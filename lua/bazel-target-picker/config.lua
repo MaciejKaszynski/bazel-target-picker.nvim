@@ -1,9 +1,16 @@
 local M = {}
 
---- Default `run`: sends cmd to a toggleterm floating terminal.
+--- The configuration for the plugin can be taken from multiple sources, these
+--- settings are merged and the precedence is as follows:
+--- 1. From the `.git/nvim-bazel.json` file. - Repo specific settings.
+--- 2. Given to the `setup(opts)` method. - "Global" settings.
+
+
+--- Default `run`: sends cmd to a plain Neovim :terminal split. No plugin
+--- dependency; override via `setup({ run = ... })` for e.g. toggleterm.
 --- @param cmd string
 local function default_run(cmd)
-  require("toggleterm").exec(cmd, nil, nil, nil, "float")
+  vim.cmd("botright split | terminal " .. cmd)
 end
 
 --- The bazel subcommands the picker knows how to run.
@@ -46,7 +53,7 @@ M.COMMAND_PRIORITY = { "test", "run", "coverage", "build" }
 --- (see repo_config.lua) — the repo file wins wherever it sets a value.
 --- @class Config
 --- @field depth? integer Default rdeps search depth. Defaults to 4.
---- @field run? fun(cmd: string) How to execute the bazel command. Defaults to a toggleterm floating terminal.
+--- @field run? fun(cmd: string) How to execute the bazel command. Defaults to a plain :terminal split.
 --- @field icons? Icons Maps a bazel subcommand to the icon shown for it.
 --- @field default_icon? string Icon used for commands not listed in `icons`.
 --- @field target_config? TargetConfig
