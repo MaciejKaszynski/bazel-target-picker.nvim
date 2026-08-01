@@ -1,0 +1,32 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: check-merge-conflict
+      - id: check-added-large-files
+      - id: check-yaml
+
+  # Lua formatter. Uses the "github" variant so it downloads a prebuilt
+  # binary instead of requiring a local rust/cargo toolchain or a
+  # system-installed stylua.
+  - repo: https://github.com/JohnnyMorganz/StyLua
+    rev: v2.5.2
+    hooks:
+      - id: stylua-github
+
+  # Lua type checker, using the same lua-language-server --check this repo's
+  # own .luarc.json is written for. No published pre-commit hook exists for
+  # lua-language-server, so this shells out directly; requires
+  # lua-language-server on PATH.
+  - repo: local
+    hooks:
+      - id: lua-language-server-check
+        name: lua-language-server type check
+        entry: lua-language-server --check=. --checklevel=Warning
+        language: system
+        types: [lua]
+        pass_filenames: false

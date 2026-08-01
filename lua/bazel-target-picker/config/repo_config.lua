@@ -1,21 +1,16 @@
-local M = {}
+--- Reads per-repo config overrides from `.git/bazel-target-picker.json`.
 
---- Per-repo, untracked overrides read from `.git/nvim-bazel.json`. Same
---- `depth`/`target_config` shape as `Config` (see config.lua) — wherever
---- this sets a value, it wins over `setup(opts)`. `universe` has no
---- `Config` equivalent since a sensible default depends on the current
---- file's package, not something set once for the whole repo.
---- @class RepoConfig
---- @field depth? integer How close do the targets have to be.
---- @field universe? string Where to start searching.
---- @field target_config? TargetConfig
+local M = {}
 
 --- Resolves the shared .git dir (handles worktrees) for a given path.
 --- @param workspace_root string The workspace to look in.
---- @return string?
+--- @return string? git_common_dir The resolved common git dir, or nil if
+---         `workspace_root` isn't inside a git repo.
 local function get_git_common_dir(workspace_root)
   local out = vim.fn.systemlist({ "git", "-C", workspace_root, "rev-parse", "--git-common-dir" })
-  if vim.v.shell_error ~= 0 or not out[1] then return nil end
+  if vim.v.shell_error ~= 0 or not out[1] then
+    return nil
+  end
   local git_dir = out[1]
   if not git_dir:match("^/") then
     git_dir = vim.fn.fnamemodify(workspace_root .. "/" .. git_dir, ":p")
@@ -23,18 +18,23 @@ local function get_git_common_dir(workspace_root)
   return (git_dir:gsub("/$", ""))
 end
 
---- Read the repo config.
---- @detials Some repos need extra args, these are specific to the repo so
----          store then in the `.git` directory.
+--- Read the repo config (`.git/bazel-target-picker.json`), untracked and
+--- specific to this checkout. Same shape as `Config` (see init.lua) —
+--- wherever this sets a value, it wins over `setup(opts)`.
 --- @param workspace_root string The workspace path.
---- @return RepoConfig
+--- @return Config config The decoded repo config, or `{}` if there's no git
+---         dir, no config file, or it fails to parse.
 function M.read(workspace_root)
   local git_dir = get_git_common_dir(workspace_root)
-  if not git_dir then return {} end
+  if not git_dir then
+    return {}
+  end
 
-  local config_path = git_dir .. "/nvim-bazel.json"
+  local config_path = git_dir .. "/bazel-target-picker.json"
   local f = io.open(config_path, "r")
-  if not f then return {} end
+  if not f then
+    return {}
+  end
 
   local content = f:read("*a")
   f:close()
