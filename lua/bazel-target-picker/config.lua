@@ -9,44 +9,6 @@ end
 --- The bazel subcommands the picker knows how to run.
 --- @alias TargetType "build"|"test"|"run"|"coverage"
 
---- Maps a bazel subcommand to the rule kinds that should run under it.
---- A kind not listed anywhere falls back to "build".
---- @alias TargetTypes table<TargetType, string[]>
-
-local TEST_KINDS = {
-  "cc_test",
-  "py_test",
-  "rust_test",
-  "java_test",
-  "go_test",
-  "sh_test",
-}
-local BINARY_KINDS = {
-  "cc_binary",
-  "py_binary",
-  "rust_binary",
-  "java_binary",
-  "go_binary",
-  "sh_binary",
-}
-local LIBRARY_KINDS = {
-  "cc_library",
-  "cc_shared_library",
-  "py_library",
-  "rust_library",
-  "java_library",
-  "go_library",
-  "sh_library",
-}
-
---- @type TargetTypes
-local DEFAULT_TARGET_TYPES = {
-  test = TEST_KINDS,
-  coverage = vim.list_extend({}, TEST_KINDS),
-  run = BINARY_KINDS,
-  build = vim.list_extend(vim.list_extend(vim.list_extend({}, TEST_KINDS), BINARY_KINDS), LIBRARY_KINDS),
-}
-
 --- Maps a bazel subcommand to the icon shown for it in the picker.
 --- Commands with no entry use `default_icon`.
 --- @alias Icons table<TargetType, string>
@@ -65,24 +27,53 @@ local DEFAULT_ICONS = {
 --- @type TargetType[]
 M.COMMAND_PRIORITY = { "test", "run", "coverage", "build" }
 
+--- Per-command config. `additional_bazel_rules` extends (never replaces)
+--- the picker's built-in rule kinds for that command. `extra_args` is
+--- appended to the "default" bucket's `extra_args` (see TargetConfig).
+--- @class TargetCommandConfig
+--- @field additional_bazel_rules? string[] Extra rule kinds that should also resolve to this command.
+--- @field extra_args? string[] Extra bazel flags to pass when running this command.
+
+--- "default" applies to every command; a specific command's `extra_args`
+--- is appended on top of (not instead of) "default"'s. `additional_bazel_rules`
+--- is only meaningful under a real command, not "default", since a rule
+--- kind has to resolve to exactly one command.
+--- @alias TargetConfigKey TargetType|"default"
+
+--- @alias TargetConfig table<TargetConfigKey, TargetCommandConfig>
+
+--- Shared by both `M.setup(opts)` and the per-repo `.git/nvim-bazel.json`
+--- (see repo_config.lua) — the repo file wins wherever it sets a value.
 --- @class Config
 --- @field depth? integer Default rdeps search depth. Defaults to 4.
 --- @field run? fun(cmd: string) How to execute the bazel command. Defaults to a toggleterm floating terminal.
---- @field target_types? TargetTypes Maps a bazel subcommand to the rule kinds that use it.
 --- @field icons? Icons Maps a bazel subcommand to the icon shown for it.
 --- @field default_icon? string Icon used for commands not listed in `icons`.
+--- @field target_config? TargetConfig
 M.config = {
   depth = 4,
   run = default_run,
-  target_types = DEFAULT_TARGET_TYPES,
   icons = DEFAULT_ICONS,
   default_icon = "❔",
+  target_config = {},
 }
 
 --- Merges opts into the current config.
 --- @param opts? Config
 function M.setup(opts)
   M.config = vim.tbl_deep_extend("force", M.config, opts or {})
+end
+
+--- Computes the effective extra bazel args for a command: the "default"
+--- bucket's args, followed by the command-specific bucket's args.
+--- @param target_config TargetConfig
+--- @param command TargetType
+--- @return string[]
+function M.extra_args(target_config, command)
+  local args = {}
+  vim.list_extend(args, (target_config.default or {}).extra_args or {})
+  vim.list_extend(args, (target_config[command] or {}).extra_args or {})
+  return args
 end
 
 return M

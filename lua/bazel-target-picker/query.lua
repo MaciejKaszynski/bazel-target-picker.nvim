@@ -2,6 +2,42 @@ local config = require("bazel-target-picker.config")
 
 local M = {}
 
+local TEST_KINDS = {
+  "cc_test",
+  "py_test",
+  "rust_test",
+  "java_test",
+  "go_test",
+  "sh_test",
+}
+local BINARY_KINDS = {
+  "cc_binary",
+  "py_binary",
+  "rust_binary",
+  "java_binary",
+  "go_binary",
+  "sh_binary",
+}
+local LIBRARY_KINDS = {
+  "cc_library",
+  "cc_shared_library",
+  "py_library",
+  "rust_library",
+  "java_library",
+  "go_library",
+  "sh_library",
+}
+
+--- Built-in rule kinds for each command. `target_config[command].additional_bazel_rules`
+--- extends these; nothing in user config ever replaces them.
+--- @type table<TargetType, string[]>
+local DEFAULT_KINDS = {
+  test = TEST_KINDS,
+  coverage = vim.list_extend({}, TEST_KINDS),
+  run = BINARY_KINDS,
+  build = vim.list_extend(vim.list_extend(vim.list_extend({}, TEST_KINDS), BINARY_KINDS), LIBRARY_KINDS),
+}
+
 --- A Bazel target found by `M.find`.
 --- @class BazelTarget
 --- @field kind string The rule kind, e.g. "cc_library" or "cc_test".
@@ -16,13 +52,15 @@ local M = {}
 --- Resolves every bazel subcommand that applies to a rule kind, in
 --- COMMAND_PRIORITY order (falls back to just "build" if none match).
 --- @param kind string
+--- @param target_config TargetConfig
 --- @return TargetType[]
-local function resolve_commands(kind)
+local function resolve_commands(kind, target_config)
   --- @type TargetType[]
   local commands = {}
   for _, command in ipairs(config.COMMAND_PRIORITY) do
-    local kinds = config.config.target_types[command]
-    if kinds and vim.tbl_contains(kinds, kind) then
+    local kinds = DEFAULT_KINDS[command] or {}
+    local extra_kinds = (target_config[command] or {}).additional_bazel_rules or {}
+    if vim.tbl_contains(kinds, kind) or vim.tbl_contains(extra_kinds, kind) then
       table.insert(commands, command)
     end
   end
@@ -60,12 +98,13 @@ end
 --- Expands each target into one PickerItem per applicable command, in
 --- COMMAND_PRIORITY order.
 --- @param targets BazelTarget[]
+--- @param target_config TargetConfig
 --- @return PickerItem[]
-function M.expand(targets)
+function M.expand(targets, target_config)
   --- @type PickerItem[]
   local items = {}
   for _, target in ipairs(targets) do
-    for _, command in ipairs(resolve_commands(target.kind)) do
+    for _, command in ipairs(resolve_commands(target.kind, target_config)) do
       table.insert(items, { kind = target.kind, label = target.label, command = command })
     end
   end

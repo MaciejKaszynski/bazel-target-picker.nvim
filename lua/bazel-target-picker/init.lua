@@ -26,12 +26,13 @@ function M.pick()
   vim.notify("File label: " .. file_label)
 
   local repo = repo_config.read(workspace_root)
-  local extra_args = repo.extra_args or ""
   --- @type string?
   local package_path = file_label:match("^//(.-):")
   if not package_path then return end
   local universe = repo.universe or ("//" .. package_path .. ":*")
   local depth = repo.depth or config.config.depth or 4
+  -- Repo target_config wins wherever it sets a value; same merge M.setup uses.
+  local target_config = vim.tbl_deep_extend("force", config.config.target_config or {}, repo.target_config or {})
 
   local targets = query.find(file_label, universe, depth)
   if not targets then return end
@@ -40,12 +41,13 @@ function M.pick()
     return
   end
 
-  local items = query.expand(targets)
+  local items = query.expand(targets, target_config)
 
   ui.select(items, function(choice)
+    local args = config.extra_args(target_config, choice.command)
     local cmd = "bazel " .. choice.command .. " " .. choice.label
-    if extra_args ~= "" then
-      cmd = cmd .. " " .. extra_args
+    if #args > 0 then
+      cmd = cmd .. " " .. table.concat(args, " ")
     end
     config.config.run(cmd)
   end)

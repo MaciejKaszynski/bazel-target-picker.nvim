@@ -1,10 +1,14 @@
 local M = {}
 
---- Per-repo, untracked overrides read from `.git/nvim-bazel.json`.
+--- Per-repo, untracked overrides read from `.git/nvim-bazel.json`. Same
+--- `depth`/`target_config` shape as `Config` (see config.lua) — wherever
+--- this sets a value, it wins over `setup(opts)`. `universe` has no
+--- `Config` equivalent since a sensible default depends on the current
+--- file's package, not something set once for the whole repo.
 --- @class RepoConfig
---- @field depth number? How close do the targets have to be.
---- @field extra_args string? Additional args to add to the command.
---- @field universe string? Where to start searching.
+--- @field depth? integer How close do the targets have to be.
+--- @field universe? string Where to start searching.
+--- @field target_config? TargetConfig
 
 --- Resolves the shared .git dir (handles worktrees) for a given path.
 --- @param workspace_root string The workspace to look in.
