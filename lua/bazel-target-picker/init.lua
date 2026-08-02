@@ -33,54 +33,15 @@ end
 --- @field targets PickedTarget[] The targets that made it into `cmd`, e.g. { { label = "//pkg:a", rule = "cc_test" } }.
 --- @field target_type TargetType The resolved bazel subcommand shared by every entry in `targets`, e.g. "test".
 
---- Shared impl for picking from buffer.
---- get label -> bazel query -> pick -> build command.
---- Calls `on_result(result)` once a target is chosen.
---- @param dispatch fun(result: PickResult)
---- @return boolean success Whether a target was resolved and handed off to
----         `on_result`; false if resolution, the query, or selection was
----         aborted (most failure paths already show a notification
----         explaining why).
-local function pick_from_buffer_impl(dispatch)
-  local filepath = vim.fn.expand("%:p")
-  if filepath == "" then
-    vim.notify("No file in current buffer", vim.log.levels.ERROR)
-    return false
-  end
-  local file_dir = vim.fn.fnamemodify(filepath, ":h")
+--- Shared tail: expands targets into picker entries, lets you pick one,
+--- builds the resulting bazel command, then calls `on_result(result)`.
+--- @param targets BazelTarget[] The candidate targets, e.g. from `query.find`/`query.find_all`.
+--- @param target_config TargetConfig The merged config to resolve commands/args with.
+--- @param on_result fun(result: PickResult)
+local function pick_from_targets(targets, target_config, on_result)
+  local items = query.expand(targets, target_config)
 
-  local workspace_root = label.get_workspace_path(filepath, file_dir)
-  if not workspace_root then
-    return false
-  end
-
-  local file_label = label.get_current_file_label(filepath, file_dir, workspace_root)
-  if not file_label then
-    return false
-  end
-
-  vim.notify("File label: " .. file_label)
-
-  --- @type string?
-  local package_path = file_label:match("^//(.-):")
-  if not package_path then
-    return false
-  end
-  local cfg = config.get_config()
-  local universe = "//" .. package_path .. ":*"
-
-  local targets = query.find(file_label, universe, cfg.depth)
-  if not targets then
-    return false
-  end
-  if #targets == 0 then
-    vim.notify("No targets found for " .. file_label, vim.log.levels.WARN)
-    return false
-  end
-
-  local items = query.expand(targets, cfg.target_config)
-
-  ui.select(items, cfg.target_config, function(choices)
+  ui.select(items, target_config, function(choices)
     local target_type = choices[1].command
 
     --- @type PickedTarget[]
@@ -97,13 +58,112 @@ local function pick_from_buffer_impl(dispatch)
       table.insert(labels, t.label)
     end
 
-    local args = config.extra_args(cfg.target_config, target_type)
+    local args = config.extra_args(target_config, target_type)
     local cmd = "bazel " .. target_type .. " " .. table.concat(labels, " ")
     if #args > 0 then
       cmd = cmd .. " " .. table.concat(args, " ")
     end
-    dispatch({ cmd = cmd, targets = matching_targets, target_type = target_type })
+    on_result({ cmd = cmd, targets = matching_targets, target_type = target_type })
   end)
+end
+
+--- Finds every target defined in the package at dir (i.e. by its BUILD/
+--- BUILD.bazel file), rather than resolving rdeps for a specific file.
+--- @param dir string The package directory (containing the BUILD file).
+--- @param workspace_root string The Bazel workspace root.
+--- @return BazelTarget[]? targets The targets found, or nil if the
+---         underlying `bazel query` failed.
+local function find_targets_in_package(dir, workspace_root)
+  local package_path = dir:sub(#workspace_root + 2)
+  return query.find_all("//" .. package_path .. ":*")
+end
+
+--- Resolve → query → pick → build-command pipeline scoped to the current
+--- buffer's file. If the buffer is itself a BUILD/BUILD.bazel file, lists
+--- every target that file defines instead of resolving rdeps (a BUILD file
+--- isn't a source of any target, so rdeps doesn't apply to it). Calls
+--- `on_result(result)` once a target is chosen.
+--- @param on_result fun(result: PickResult)
+--- @return boolean success Whether a target was resolved and handed off to
+---         `on_result`; false if resolution, the query, or selection was
+---         aborted (most failure paths already show a notification
+---         explaining why).
+local function pick_from_buffer_impl(on_result)
+  local filepath = vim.fn.expand("%:p")
+  if filepath == "" then
+    vim.notify("No file in current buffer", vim.log.levels.ERROR)
+    return false
+  end
+  local file_dir = vim.fn.fnamemodify(filepath, ":h")
+
+  local workspace_root = label.get_workspace_path(filepath, file_dir)
+  if not workspace_root then
+    return false
+  end
+
+  local cfg = config.get_config()
+  local filename = vim.fn.fnamemodify(filepath, ":t")
+
+  --- @type BazelTarget[]?
+  local targets
+  if filename == "BUILD" or filename == "BUILD.bazel" then
+    targets = find_targets_in_package(file_dir, workspace_root)
+  else
+    local file_label = label.get_current_file_label(filepath, file_dir, workspace_root)
+    if not file_label then
+      return false
+    end
+
+    vim.notify("File label: " .. file_label)
+
+    --- @type string?
+    local package_path = file_label:match("^//(.-):")
+    if not package_path then
+      return false
+    end
+    local universe = "//" .. package_path .. ":*"
+    targets = query.find(file_label, universe, cfg.depth)
+  end
+
+  if not targets then
+    return false
+  end
+  if #targets == 0 then
+    vim.notify("No targets found", vim.log.levels.WARN)
+    return false
+  end
+
+  pick_from_targets(targets, cfg.target_config, on_result)
+  return true
+end
+
+--- Resolve → query → pick → build-command pipeline over every target in the
+--- workspace, regardless of the current buffer. Calls `on_result(result)`
+--- once a target is chosen.
+--- @param on_result fun(result: PickResult)
+--- @return boolean success Whether a target was resolved and handed off to
+---         `on_result`; false if resolution, the query, or selection was
+---         aborted (most failure paths already show a notification
+---         explaining why).
+local function pick_all_impl(on_result)
+  local cwd = vim.fn.getcwd()
+  local workspace_root = label.get_workspace_path(cwd, cwd)
+  if not workspace_root then
+    return false
+  end
+
+  local cfg = config.get_config()
+
+  local targets = query.find_all("//...")
+  if not targets then
+    return false
+  end
+  if #targets == 0 then
+    vim.notify("No targets found", vim.log.levels.WARN)
+    return false
+  end
+
+  pick_from_targets(targets, cfg.target_config, on_result)
   return true
 end
 
@@ -129,6 +189,18 @@ end
 ---         called; false if the pick was aborted before a selection was made.
 function M.pick_verbose_from_buffer(dispatch)
   return pick_from_buffer_impl(dispatch)
+end
+
+--- Finds every Bazel rule target in the current workspace (`//...`),
+--- regardless of the current buffer, lets you pick one, builds the bazel
+--- command, then calls `dispatch(cmd)` with it.
+--- @param dispatch fun(cmd: string)
+--- @return boolean success Whether a target was picked and `dispatch` was
+---         called; false if the pick was aborted before a selection was made.
+function M.pick_all(dispatch)
+  return pick_all_impl(function(result)
+    dispatch(result.cmd)
+  end)
 end
 
 return M

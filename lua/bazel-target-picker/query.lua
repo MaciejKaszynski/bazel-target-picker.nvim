@@ -70,15 +70,13 @@ local function resolve_commands(kind, target_config)
   return commands
 end
 
---- Finds targets within `depth` dependency hops of file_label, within universe.
---- @param file_label string The label of the file to query for.
---- @param universe string The root where to search from.
---- @param depth number How far away the targets can be.
+--- Runs a `bazel query` expression and parses its `--output=label_kind`
+--- lines into BazelTargets.
+--- @param query_expr string A full `bazel query` expression.
 --- @return BazelTarget[]? targets The targets found, or nil if the
 ---         underlying `bazel query` failed.
-function M.find(file_label, universe, depth)
-  local query = string.format("kind(rule, rdeps(%s, %s, %d))", universe, file_label, depth)
-  local out = vim.fn.systemlist({ "bazel", "query", "--output=label_kind", query })
+local function run_query(query_expr)
+  local out = vim.fn.systemlist({ "bazel", "query", "--output=label_kind", query_expr })
   if vim.v.shell_error ~= 0 then
     vim.notify("bazel query failed:\n" .. table.concat(out, "\n"), vim.log.levels.ERROR)
     return nil
@@ -94,6 +92,25 @@ function M.find(file_label, universe, depth)
     end
   end
   return targets
+end
+
+--- Finds targets within `depth` dependency hops of file_label, within universe.
+--- @param file_label string The label of the file to query for.
+--- @param universe string The root where to search from.
+--- @param depth number How far away the targets can be.
+--- @return BazelTarget[]? targets The targets found, or nil if the
+---         underlying `bazel query` failed.
+function M.find(file_label, universe, depth)
+  return run_query(string.format("kind(rule, rdeps(%s, %s, %d))", universe, file_label, depth))
+end
+
+--- Finds every rule target within universe, with no rdeps traversal —
+--- unlike `M.find`, this isn't scoped to any particular file.
+--- @param universe string The scope to search, e.g. "//..." for everything.
+--- @return BazelTarget[]? targets The targets found, or nil if the
+---         underlying `bazel query` failed.
+function M.find_all(universe)
+  return run_query(string.format("kind(rule, %s)", universe))
 end
 
 --- Expands each target into one PickerItem per applicable command.
